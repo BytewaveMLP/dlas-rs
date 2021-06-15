@@ -1,6 +1,16 @@
-use actix_web::{get, middleware::Logger, post, web, App, HttpResponse, HttpServer, Responder};
+extern crate ring;
+
+use actix_web::{
+    dev::{AppService, HttpServiceFactory},
+    get,
+    middleware::Logger,
+    post, web, App, HttpResponse, HttpServer, Responder,
+};
 use log::{debug, error, info, log_enabled, Level};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+use dlas_rs::AuthTokenPayload;
 
 #[derive(Deserialize)]
 struct AuthRequest {
@@ -22,38 +32,46 @@ enum AuthStatus {
 }
 
 #[derive(Serialize)]
-struct AuthToken {
-    username: String,
-    flags: Vec<String>,
-    iat: u64,
-    uid: String,
-    group: Option<String>,
-    nonce: String,
-}
-
-#[derive(Serialize)]
 struct AuthResponse {
     status: AuthStatus,
 }
 
-#[post("/")]
-async fn authenticate(info: web::Json<AuthRequest>) -> impl Responder {
-    HttpResponse::Ok()
+struct AppState {
+    keypair: Arc<ring::signature::Ed25519KeyPair>,
 }
 
-#[get("/status")]
-async fn healthcheck() -> impl Responder {
-    HttpResponse::Ok()
+#[post("/")]
+async fn authenticate(
+    data: web::Data<AppState>,
+    request: web::Json<AuthRequest>,
+) -> impl Responder {
+    let token = AuthTokenPayload::new(
+        "Bytewave".to_string(),
+        None,
+        None,
+        None,
+        "foobar".to_string(),
+    );
+    HttpResponse::Ok().body(token.sign(data.get_ref().keypair.clone()))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
-    HttpServer::new(|| {
+
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8_bytes = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+    let keypair =
+        Arc::new(ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8_bytes.as_ref()).unwrap());
+
+    HttpServer::new(move || {
         App::new()
+            .data(AppState {
+                keypair: keypair.clone(),
+            })
             .wrap(Logger::default())
             .service(authenticate)
-            .service(healthcheck)
+            .service(web::resource("/status").to(|| HttpResponse::Ok()))
     })
     .bind("127.0.0.1:8080")?
     .run()
