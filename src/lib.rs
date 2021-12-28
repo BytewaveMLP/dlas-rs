@@ -1,17 +1,22 @@
 extern crate ring;
 
-use serde::Serialize;
+use derivative::Derivative;
+use ldap3::LdapConnAsync;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AuthTokenPayload {
     username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     flags: Option<Vec<String>>,
     iat: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     uid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<String>,
-    nonce: String,
+    nonce: Option<String>,
 }
 
 impl AuthTokenPayload {
@@ -20,7 +25,7 @@ impl AuthTokenPayload {
         flags: Option<Vec<String>>,
         uid: Option<String>,
         group: Option<String>,
-        nonce: String,
+        nonce: Option<String>,
     ) -> Self {
         AuthTokenPayload {
             username,
